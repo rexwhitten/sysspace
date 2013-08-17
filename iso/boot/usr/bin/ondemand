@@ -1,0 +1,187 @@
+#!/bin/busybox ash
+# (c) Robert Shingledecker 2009-2012
+
+. /etc/init.d/tc-functions
+useBusybox
+
+selectList() {
+	TMPFILE=`mktemp`	
+	for F in `ls "$TCEDIR"/optional/*."$TYPE" 2>/dev/null`; do
+		ITEM="${F##*/}"
+		ADDITEM=1
+		
+#		Exclude onboot items from select for on demand.
+		if grep -qw "$ITEM" "$TCEDIR"/"$ONBOOTNAME"; then
+			ADDITEM=0
+		fi
+		
+#		Exclude current ondemand items from select
+		[ -e "$TCEDIR"/ondemand/"$ITEM" ] && ADDITEM=0
+		
+		[ "$ADDITEM" == "1" ] &&  echo "$ITEM" >> "$TMPFILE"
+	done
+	
+	sort -f "$TMPFILE"
+	rm -f "$TMPFILE"
+}
+
+TCEDIR=/etc/sysconfig/tcedir
+[ -d "$TCEDIR" ] || exit 1
+LOCALAPPS="$TCEDIR"/optional
+WBAR_ICON_DIR="/usr/local/tce.icons"
+FREEDESKTOP=/usr/local/share/applications
+2>/dev/null read DESKTOP < /etc/sysconfig/desktop
+
+LOCALDIR="$HOME"/.local/share/applications
+
+[ -d /mnt/test ] || sudo mkdir -p /mnt/test
+
+while getopts clster OPTION
+do
+	case ${OPTION} in
+		c) CURRITEMS=1 ;;
+		l) LISTITEMS=1 ;;
+		s) SCM=1; TYPE="scm" ;;
+		t) TCZ=1; TYPE="tcz" ;;
+		e) EXECITEM=1 ;;
+		r) REMOVEITEM=1 ;;
+		*) exit 1 ;;
+	esac
+done
+shift `expr $OPTIND - 1`
+
+[ -n "$TYPE" ] || TYPE="tcz"
+
+ONBOOTNAME="$(getbootparam lst 2>/dev/null)"
+if [ -z "$ONBOOTNAME" ]; then
+	[ "$TYPE" == "tcz" ] && ONBOOTNAME="onboot.lst" || ONBOOTNAME="scmboot.lst"
+fi
+
+if [ "$LISTITEMS" ]; then
+	selectList
+	exit 0
+fi
+
+if [ "$CURRITEMS" ]; then
+	for F in `ls "$TCEDIR"/ondemand/*`
+	do
+		grep -l ."$TYPE" "$F" | awk 'BEGIN{FS="/"}{print $NF}'
+	done
+	exit 0
+fi
+
+if [ "$REMOVEITEM" ]; then
+	[ -z "$1" ] && exit 1
+	TARGET="$TCEDIR"/ondemand/"$1"
+	if [ -e "$TARGET" ]; then
+		rm -f  "$TARGET"
+		[ -e "$TARGET".img ] && rm -f "$TARGET".img
+		if [ "$ICONS" == "wbar" ] && [ ! -f /etc/sysconfig/noondemandicons ]
+		then
+			APPNAME="${TARGET##*/}"
+			if grep -q "ondemand\/$APPNAME$" "$WBAR_ICON_DIR" 
+			then
+				wbar_rm_icon "$APPNAME"
+				wbar.sh
+			fi
+		fi
+		[ $(which "$DESKTOP"_ondemand) ] && "$DESKTOP"_ondemand 2>/dev/null
+		[ $(which "$DESKTOP"_restart) ] && "$DESKTOP"_restart 2>/dev/null
+	fi
+	exit 0
+fi
+
+if  [ -n "$1" ]; then
+	EXTN="$1"
+	APPNAME="${EXTN%.*}"
+	if [ "$APPNAME" == "$EXTN" ]; then
+		echo ".tcz or .scm is required."
+		exit 1
+	fi
+else
+	exit 1
+fi
+
+if [ "$EXECITEM" ]; then
+	if [ "${1##*.}" == "tcz" ]; then
+		INSTALLED=/usr/local/tce.installed
+		if [ ! -e "$INSTALLED"/"$APPNAME" ]; then
+			shift 1 && tce-load -is "$LOCALAPPS"/"$APPNAME".tcz && launchApp "$APPNAME" $@
+		else
+			if [ "$(which $APPNAME)" ]
+			then
+				exec $APPNAME
+			else
+				echo "Already loaded. Call from regular menu or terminal."
+				printf "\a"
+			fi
+		fi
+	fi
+
+	if [ "${1##*.}" == "scm" ]; then
+		if [ ! -e /apps/"$APPNAME" ]; then
+			shift 1 && scm-load -i "$LOCALAPPS"/"$APPNAME".scm && launchApp "$APPNAME" $@
+		else
+			scm-load -r "$APPNAME"
+			if [ "$ICONS" == "wbar" ] && [ ! -f /etc/sysconfig/noondemandicons ]
+			then
+				wbar_rm_icon "$APPNAME"
+				echo "i: $TCEDIR"/ondemand/"$APPNAME".img >> "$WBAR_ICON_DIR"
+				echo "t: $APPNAME" >>  "$WBAR_ICON_DIR"
+				echo "c: $TCEDIR/ondemand/$APPNAME" >> "$WBAR_ICON_DIR"
+				wbar.sh
+			fi
+		fi
+	fi
+	exit 0
+fi
+
+# Arrive here if no flags were specified.
+# Create ondemand item....
+
+sudo mount "$TCEDIR"/optional/"$EXTN" /mnt/test -t squashfs -o loop,ro,bs=4096
+[ "$?" == 0 ] || exit 1
+DESKTOP_PATH="/mnt/test"
+TYPE="${EXTN##*.}"
+[ "$TYPE" == "tcz" ] && DESKTOP_PATH="$DESKTOP_PATH/usr/local"
+DESKTOP_PATH="$DESKTOP_PATH/share"
+
+
+# Generic shell script for OnDemand by all WMs
+[ -d "$TCEDIR"/ondemand ] || mkdir -p "$TCEDIR"/ondemand
+FILE="$TCEDIR"/ondemand/"$APPNAME"
+echo '#!/bin/sh' > "$FILE"
+echo "ondemand -e $EXTN" >> "$FILE"
+chmod +x "$FILE"
+
+# Now check for wbar icons.
+if [ "$ICONS" == "wbar" ] && [ ! -f /etc/sysconfig/noondemandicons ]; then
+	ICONCHECK="$(awk 'BEGIN{FS = "="}$1=="X-FullPathIcon"{print $2}' "$DESKTOP_PATH"/applications/"${APPNAME}".desktop)" 2>/dev/null
+	if [ "$ICONCHECK" != "" ]; then
+		# First check if using an exisiting icon in file sysstem
+		if [ ! -e "$ICONCHECK" ]
+		then
+			# For scm strip off /apps/APPNAME
+			[ "$TYPE" == "scm" ] && ICONCHECK="${ICONCHECK#*$APPNAME/}"
+			ICONCHECK=/mnt/test/"$ICONCHECK"
+		fi
+		# Finally ensure icon exists
+		if [ -e "$ICONCHECK" ]; then
+			[ -d "$TCEDIR"/ondemand ] || mkdir "$TCEDIR"/ondemand
+			cp "$ICONCHECK" "$TCEDIR"/ondemand/"$APPNAME".img
+			echo "i: $TCEDIR"/ondemand/"$APPNAME".img >> "$WBAR_ICON_DIR"
+			echo "t: $APPNAME" >>  "$WBAR_ICON_DIR"
+			echo "c: $FILE" >> "$WBAR_ICON_DIR"
+			wbar.sh
+		fi
+	fi
+fi
+umount -d /mnt/test
+
+
+# Optional as flwm does not need a make_ondemand.
+[ $(which ${DESKTOP}_ondemand) ] && ${DESKTOP}_ondemand "$APPNAME"
+
+if [ $(which ${DESKTOP}_restart) ]; then
+	${DESKTOP}_restart
+fi

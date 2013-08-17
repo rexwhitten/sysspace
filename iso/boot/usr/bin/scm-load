@@ -1,0 +1,225 @@
+#!/bin/busybox ash
+. /etc/init.d/tc-functions
+useBusybox
+checknotroot
+
+TCEDIR=`readlink /etc/sysconfig/tcedir`
+SAVED_DIR=`pwd`
+
+getMirror
+MIRROR="${MIRROR/tcz/scm}"
+
+[ -d "$TCEDIR"/optional ] || mkdir -p "$TCEDIR"/optional
+[ -d /apps/bin ] || sudo mkdir -p /apps/bin
+[ -d /opt/scm/etc ] || sudo mkdir -p /opt/scm/etc
+[ -d /opt/scm/share/locale ] || sudo mkdir -p /opt/scm/share/locale
+[ -L /apps/share ] || sudo ln -s /opt/scm/share /apps/share        
+[ -L /apps/etc ] || sudo ln -s /opt/scm/etc /apps/etc
+
+abort(){
+	cd "$SAVED_DIR"
+	echo "1" > /tmp/appserr
+	exit 1
+}
+
+unset BOOTING INSTALL ONDEMAND REMOVE WGET
+while getopts biorw OPTION
+do
+	case ${OPTION} in
+		b) BOOTING=TRUE ;;
+		i) INSTALL=TRUE ;;
+		o) ONDEMAND=TRUE ;;
+		r) REMOVE=TRUE ;;
+		w) WGET=TRUE ;;
+		*) abort ;;
+	esac
+done
+shift `expr $OPTIND - 1`
+
+if [ -z "$1" ]; then
+	echo "Version `version`";
+	echo "Usage scm-load [-b, -i, -w, -r] name{.scm}"
+	echo "  -b   Internal use only - Indicates that the system is booting."
+	echo "  -i   Loads local extension"
+        echo "  -wi  Download and install extension"
+        echo "  -w   Download extension only"
+        echo "  -wo  Download and create ondemand item"
+        echo "  -r   Uninstall extension"
+        echo -e  "\nExample usage:"
+        echo " Load local extension:"
+        echo "   scm-load -i /mnt/hda1/tce/optional/tar.scm"
+        echo " Download into tce/optional directory, updates OnBoot and installs:"
+        echo "   scm-load -w -i tar.scm"
+        echo " Download only into tce/optional directory:"
+        echo "   scm-load -w tar.scm"
+        echo " Unmount extension:"
+        echo "   scm-load -r tar.scm"
+	exit 1
+fi
+
+[ "$BOOTING" ] || (read ICONS < /etc/sysconfig/icons) 2>/dev/null
+
+EXT=$1
+[ -n "#EXT" ] || exit 1
+[ "$EXT" == "${EXT%.scm}" ] && EXT="$EXT".scm
+
+if [ ! "$WGET" ]; then
+	 [ "$EXT" == "${EXT##*/}" ] && EXT="$TCEDIR"/optional/"$EXT"
+	if [ ! -f "$EXT" ]; then
+		echo "$EXT not found!"
+		abort
+	fi
+fi
+
+EXTENSION=`basename "$EXT"`
+FROMWHERE=`dirname $1`
+APPNAME=`basename "$EXT" .scm`
+
+mountpkg() {
+	APP=`basename $1 .scm`
+ 	[ -d /apps/"$APP" ] || sudo mkdir -p /apps/"$APP"
+	sudo busybox mount "$1" /apps/"$APP" -t squashfs -o loop,ro,bs=4096
+	if [ "$?" == 0 ]; then
+		if [ "$(ls -A /apps/"$APP")" ]; then
+		    if [ -x /apps/"$APP"/config/install ]; then
+                      sudo /apps/"$APP"/config/install
+                    fi
+		    [ -d /usr/local/share/applications/ ] || sudo mkdir -p /usr/local/share/applications/
+		    ls -A /apps/"$APP"/share/applications/*.desktop > /dev/null 2>&1 && \
+sudo ln -s /apps/"$APP"/share/applications/*.desktop /usr/local/share/applications/ > /dev/null 2>&1
+		    
+		    [ -d /usr/local/share/pixmaps/ ] || sudo mkdir -p /usr/local/share/pixmaps/
+		    ls -A /apps/"$APP"/share/pixmaps/*.png > /dev/null 2>&1 && \
+sudo ln -s /apps/"$APP"/share/pixmaps/*.png /usr/local/share/pixmaps/ > /dev/null 2>&1
+		    
+
+		    if ls -A /apps/"$APP"/bin > /dev/null 2>&1 && ! grep "link_bin=no" /apps/"$APP"/config/spec > /dev/null 2>&1; then
+			sudo ln -s /apps/"$APP"/bin/* /apps/bin/ > /dev/null 2>&1
+		    fi
+		    if [ ! "$BOOTING" ]; then
+		    	desktop.sh "$APP"  2>/dev/null
+			[ $(which "$DESKTOP"_restart) ] && "$DESKTOP"_restart
+			[ -n "$ICONS" ] && "$ICONS".sh &
+		    fi
+		fi
+		
+	fi
+}
+
+fetch_app(){
+	echo "0" > /tmp/appserr
+	wget -cq "$MIRROR"/"$1".md5.txt 2>/dev/null
+	if [ -f "$1" ]; then
+		md5sum -cs "$1".md5.txt
+		if [ "$?" != 0 ]; then
+			wget -c "$MIRROR"/"$1" 
+		fi
+	else
+		wget -c "$MIRROR"/"$1"
+	fi
+}
+
+process_dep(){
+	DEPLOADED=0
+	if [ -f "$EXTENSION".dep ]; then
+		for I in `cat "$EXTENSION".dep`; do 
+			PKGNAME="${I%.*}"
+			if [ ! -d /apps/"$PKGNAME" ]; then 
+				if [ "$WGET" ]; then
+			  		fetch_app "$I"
+				else
+			  		if [ ! -f "$FROMWHERE"/"$I" ]; then
+			   			echo ""$FROMWHERE"/"$I" not found, exiting.."
+			   			abort
+			  		fi	
+			 	fi
+			  	mountpkg "$FROMWHERE"/"$I"
+			  	[ "$?" != 0 ] && DEPLOADED=1				
+				
+   			fi
+		done
+	fi
+
+	if [ "$DEPLOADED" != 0 ]; then 
+		echo "Failed to load required dependencies"
+		abort
+	fi
+}
+
+
+install(){
+	if mount | grep /apps/"$APPNAME"$ > /dev/null 2>&1; then
+		echo ""$APPNAME" is already loaded, exiting."
+		abort
+	fi
+
+	if [ -z "$WGET" ]; then
+		if [ "$FROMWHERE" == ""$TCEDIR"/optional" ] && [ -f "$TCEDIR"/optional/"$EXTENSION" ]; then
+			FROMWHERE="$TCEDIR"/optional && cd "$FROMWHERE"
+		else 
+			FROMWHERE=`dirname "$EXT"` && cd "$FROMWHERE"
+		fi
+		process_dep	
+	else
+		if [ -z "$BOOTING" ]; then
+			FROMWHERE="$TCEDIR"/optional && cd "$FROMWHERE"
+			[ -f "$EXTENSION".dep ] || wget -cq "$MIRROR"/"$EXTENSION".dep 2>/dev/null
+			[ -f "$EXTENSION".dep ] && process_dep
+   			fetch_app "$EXTENSION"  
+		fi
+	fi  
+	
+	md5sum -c "$EXTENSION".md5.txt
+	if [ "$?" != 0 ]; then
+		echo "Error on $EXTENSION"
+		abort
+	fi
+	
+	[ "$ONDEMAND" ] && ondemand "$EXTENSION"
+
+	if [ "$INSTALL" ] && [ -f "$FROMWHERE"/"$EXTENSION" ]; then
+		mountpkg "$FROMWHERE"/"$EXTENSION"
+	else
+		if [ "$INSTALL" ]; then
+			echo ""$FROMWHERE"/"$EXTENSION" does not exist, exiting.. "
+			abort
+		fi
+	fi 
+}
+
+remove(){
+	FREEDESKTOPAPP=/usr/local/share/applications/"$APPNAME".desktop
+	MENUNAME="$(awk 'BEGIN{FS="="}{if ($1 == "Name") print $2}' "$FREEDESKTOPAPP")"
+	
+	# Remove menu item
+	read DESKTOP < /etc/sysconfig/desktop
+	[ $(which "$DESKTOP"_rmitem) ] && "$DESKTOP"_rmitem "$APPNAME"
+	[ $(which "$DESKTOP"_rmitem) ] && "$DESKTOP"_rmitem "$MENUNAME"
+	[ $(which "$DESKTOP"_restart) ] && "$DESKTOP"_restart
+	
+	# Remove icon
+	if [ -n "$ICONS" ]; then
+		ICONSPEC="$(awk 'BEGIN{FS="="}{if ($1 == "X-FullPathIcon") print $2}' "$FREEDESKTOPAPP")"
+		[ -n "$ICONSPEC" ] && "$ICONS"_rm_icon "$MENUNAME" && "$ICONS".sh &
+	fi
+
+	for I in `find /apps/bin`; do 
+          readlink "$I" | grep "/apps/$APPNAME/bin" > /dev/null 2>&1 && sudo rm "$I"
+        done
+        for I in `find /usr/local/share/applications`; do 
+          readlink "$I" | grep "/apps/$APPNAME/share/applications" > /dev/null 2>&1 && sudo rm "$I"
+        done
+	for I in `find /usr/local/share/pixmaps`; do 
+          readlink "$I" | grep "/apps/$APPNAME/share/pixmaps" > /dev/null 2>&1 && sudo rm "$I"
+        done	
+	sudo umount -d /apps/"$APPNAME"
+	sudo rmdir /apps/"$APPNAME"
+}
+
+if [ "$INSTALL" ] || [ "$WGET" ]; then
+	install
+fi
+
+if [ "$REMOVE" ]; then
+	remove
+fi

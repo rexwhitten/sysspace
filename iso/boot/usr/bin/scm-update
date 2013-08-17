@@ -1,0 +1,145 @@
+#!/bin/busybox ash
+# (c) Robert Shingledecker 2009-2012
+# zsync mods by Curaga 2010
+
+. /etc/init.d/tc-functions
+useBusybox
+
+KERNELVER=$(uname -r)
+getMirror
+MIRROR="${MIRROR/tcz/scm/}"
+case $MIRROR in http*) [ -n "`which zsync`" ] && USEZSYNC=yes ;; esac
+
+
+fetch(){
+	[ -f "$1" ] && rm -f "$1"
+	wget -c "$MIRROR"/"$1"
+}
+fetchzsync(){
+	[ -f "$1" ] && rm -f "$1"
+	if zsync -i "$UPGRADE_DIR"/"$1" -q "$MIRROR"/"$1".zsync 2>/dev/null; then
+		rm -f "$1".zs-old
+	else
+		wget -c "$MIRROR"/"$1" # Either there was no zsync file on the server, or it failed
+	fi
+}
+
+chkMd5Only(){
+	MYMD5=`cat "$F"`
+	TARGET="$(getbasefile "$F" 2)"
+	REPO=`grep -w " $TARGET" md5.db`
+	if [ -n "$REPO" ]; then
+		[ "$MYMD5" == "$REPO" ] ||  echo $(basename "${F%.md5.txt}")
+	else
+		echo "Error Could not verify $TARGET"  | tee -a "$RESULTS"
+	fi
+}
+
+upgrade(){
+	TARGET="$(getbasefile "$F" 2)"
+	REPO=`grep -w " $TARGET" md5.db`
+	if [ -n "$REPO" ]; then
+		MYMD5=`cat "$F"`
+		if [ "$MYMD5" != "$REPO" ]; then
+			if [ -n "$USEZSYNC" ]; then
+				fetchzsync "$TARGET"
+			else
+				fetch "$TARGET"
+			fi
+			echo "$REPO" > "$TARGET".md5.txt
+			md5sum -cs "$TARGET".md5.txt
+			if [ "$?" == 0 ]; then
+				if mounted "${TARGET%.scm}"; then
+					mv /tmp/"$TARGET".md5.txt "$TARGET_DIR"/. 2>/dev/null
+					mv /tmp/"$TARGET" "$TARGET_DIR"/. 2>/dev/null
+					echo "$TARGET - Need reboot to effect." | tee -a "$RESULTS"
+				else
+					mv /tmp/"$TARGET".md5.txt "$UPGRADE_DIR"/. 2>/dev/null
+					mv /tmp/"$TARGET" "$UPGRADE_DIR"/. 2>/dev/null
+					echo "$TARGET - Updated in $UPGRADE_DIR." | tee -a "$RESULTS"
+				fi
+				UPDATED_APPS=1
+			else
+				echo "Failed"
+				echo "Error occurred. $TARGET Not updated!" >> "$RESULTS"
+				rm /tmp/"$TARGET".md5.txt
+				rm /tmp/"$TARGET"
+			fi
+		fi
+	else
+		echo >> "$RESULTS"
+		echo "Error Could not verify $TARGET"  | tee -a "$RESULTS"
+	fi
+}
+
+
+check_bootoptions(){
+for i in `cat /proc/cmdline`; do
+	case $i in
+		*=*)
+			case $i in
+				tce*) TCE=${i#*=} ;;
+			esac
+		;;
+	esac
+done
+}
+
+process_dir(){
+	for F in `ls "$UPGRADE_DIR"/*.md5.txt 2>/dev/null | grep -E .scm.md5.txt$`; do
+		if [ "$LIST" ]; then
+			chkMd5Only
+		else
+			upgrade
+		fi
+	done
+}
+
+process_cmd(){
+#	TARGET="$1"
+	if [ "$LIST" ]; then
+		[ -z "${TARGET##*/}" ] || TARGET="$TARGET"/
+		TARGET_DIR=${TARGET%/*}
+		[ -d "$TARGET_DIR" ] || exit 1  # Need at least a dir
+		UPGRADE_DIR="$TARGET_DIR"
+		process_dir
+	else
+		if [ -f "$TARGET" ]; then
+			TARGET_DIR=${TARGET%/*}
+			[ -d "$TARGET_DIR"/upgrade ] || mkdir "$TARGET_DIR"/upgrade
+			F="$TARGET"
+			[ "${F%.md5.txt}" == "$F" ] && F="$F".md5.txt
+			UPGRADE_DIR="$TARGET_DIR"
+			TARGET_DIR="$TARGET_DIR"/upgrade
+			upgrade
+		fi
+	fi
+	exit 0
+}
+
+# Main
+cd /tmp
+RESULTS="scm-update.results"
+> "$RESULTS"
+UPDATED_APPS=0
+
+unset LIST UPDATE
+while getopts lu OPTION
+do
+	case ${OPTION} in
+		l) LIST=1 ;;
+		u) UPDATE=1 ;;
+		*) echo "Usage scm-update {-l tcedir -,u tcedir}/optional/xyz.scm"; exit 1 ;;
+	esac
+done
+shift `expr $OPTIND - 1`
+TARGET="$1"
+[ "$LIST" ] && TARGET="$TARGET"/optional
+[ -e md5.db ] && rm -f md5.db
+scm-fetch.sh md5.db.gz
+if [ "$?" != 0 ]; then
+	echo "Could not fetch md5 database."  | tee -a "$RESULTS"
+	exit 1
+fi
+gzip -d md5.db.gz
+process_cmd

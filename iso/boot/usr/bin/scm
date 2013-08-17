@@ -1,0 +1,208 @@
+#!/bin/busybox ash
+# SCM Tool
+# (c) Robert Shingledecker 2012
+. /etc/init.d/tc-functions
+useBusybox
+trap 'echo && exit 1 1>&2' 1 2 15
+TCEDIR=/etc/sysconfig/tcedir
+SCMBOOT="$TCEDIR"/scmboot.lst
+SCMLIST="/tmp/scm.lst"
+getMirror && MIRROR="${MIRROR%tcz}"scm
+
+clearList(){
+	mode=""
+	unset SCMAPP
+	> "$SCMLIST"
+	clear
+}
+
+fetch() {
+	[ -f "$1" ] && rm -f "$1"
+	wget -P /tmp -cq "$MIRROR"/"$1"
+}
+
+fullList() {
+	for E in `ls /etc/sysconfig/tcedir/optional/*.scm 2>/dev/null`; do
+		E="${E##*/}" &&  E="${E%.scm}"
+		echo "$E"
+	done
+}
+
+installList() {
+	for E in `ls /etc/sysconfig/tcedir/optional/*.scm 2>/dev/null`; do
+		E="${E##*/}" &&  E="${E%.scm}"
+		[ -e /apps/"$E" ] || echo "$E"
+	done
+}
+
+uninstallList() {
+	mount | awk '/\/apps/{print substr($3,7)}'
+}
+
+bootList() {
+	for E in `ls /etc/sysconfig/tcedir/optional/*.scm 2>/dev/null`; do
+		E="${E##*/}" &&  E="${E%.scm}"
+		if ! grep -wq "$E" "$SCMBOOT"; then echo "$E"; fi
+	done
+}
+
+browseRepo() {
+	TITLE="Download SCM from $MIRROR"
+	MODE="b"
+	> "$SCMLIST"
+	fetch scm.lst.gz 2>/dev/null
+	[ -s /tmp/scm.lst.gz ] || return
+	gzip -cdf /tmp/scm.lst.gz > "$SCMLIST"
+	displayInfo
+	selectList
+}
+
+localList() {
+	TITLE="Install SCM from $TCEDIR/optional"
+	MODE="l"
+	installList > "$SCMLIST"
+	[ -s "$SCMLIST" ] || return
+	displayInfo
+	selectList
+}
+
+uninstall() {
+	TITLE="Uninstall SCM from /apps"
+	MODE="u"
+	uninstallList > "$SCMLIST"
+	[ -s "$SCMLIST" ] || return
+	displayInfo
+	selectList
+}
+
+bootItems() {
+	[ -s "$SCMBOOT" ] || return
+	TITLE="Current SCM boot items from $SCMBOOT"
+	MODE="-"
+	cat "$SCMBOOT" > "$SCMLIST"
+	[ -s "$SCMLIST" ] || return
+	displayInfo
+	selectList
+}
+
+selectList(){
+	echo "-=[ SCM Tool ]=-"
+	select "$TITLE" "$SCMLIST"
+	SCMAPP="$(cat /tmp/select.ans)"
+	[ "$SCMAPP" == "q" ] && unset SCMAPP && unset MODE
+}
+
+searchList() {
+	echo -n "Enter starting chars, e.g. abi: "; read ITEM
+	if [ -n "$ITEM" ]; then
+		grep  "$ITEM" "$SCMLIST" > $$.lst
+		mv $$.lst "$SCMLIST"
+	fi
+	displayInfo
+	selectList
+}
+
+displayInfo(){
+	if [ -n "$SCMAPP" ]; then
+		fetch "$SCMAPP".info
+		less /tmp/"$SCMAPP".info
+		rm /tmp/"$SCMAPP".info
+	fi
+}
+
+install(){
+	case ${MODE} in
+	l)
+		echo "scm-load -i $SCMAPP"
+		scm-load -i "$SCMAPP"
+		;;
+	b)
+		echo "scm-load -iw $SCMAPP"
+		scm-load -iw "$SCMAPP"
+	esac
+	unset SCMAPP
+}
+
+addBoot(){
+	[ -e "$SCMBOOT" ] || touch "$SCMBOOT"
+	echo "$SCMAPP" >> "$SCMBOOT"
+	echo "$SCMAPP added to $SCMBOOT"
+	unset SCMAPP
+	> "$SCMLIST"
+}
+
+rmBoot(){
+	[ -e "$SCMBOOT" ] || touch "$SCMBOOT"
+	sed -i '/'"$SCMAPP"'/d' "$SCMBOOT"
+	echo "$SCMAPP removed from $SCMBOOT"
+}
+
+displayDepends(){
+	fetch "$SCMAPP".dep
+	less /tmp/"$SCMAPP".dep 2>/dev/null
+	rm /tmp/"$SCMAPP".dep 2>/dev/null
+}
+
+
+quit(){
+	rm -f "$SCMLIST"*
+	cd - > /dev/null
+	rm -rf $TMPDIR 2>/dev/null
+	exit 0
+}
+
+# Main
+checknotroot
+while getopts bfiu OPTION
+do
+	case ${OPTION} in
+		b) bootList; exit 0 ;;
+		f) fullList; exit 0 ;;
+		i) installList; exit 0 ;;
+		u) uninstallList; exit 0 ;;
+	esac
+done
+shift `expr $OPTIND - 1`
+TMPDIR=`mktemp -d -t`
+cd $TMPDIR
+while true; do
+	if [ -n "$SCMAPP" ]; then
+		echo -n "Selected "
+		echo -en "\033[40;37;7m $SCMAPP \033[0m"
+		echo -n ": "
+		[ "$MODE" == "b" ] && echo -n "A)bout, D)epends, I)nstall, "
+		[ "$MODE" == "l" ] && echo -n "I)nstall, +)@Boot "
+		if [ "$MODE" == "u" ]; then
+			echo
+			echo -n "Are you sure you want to uninstall $SCMAPP? "; read ANS
+			if [ "$ANS" == "y" ]; then
+				scm-load -r "$SCMAPP"
+			fi	
+			clearList
+		fi
+		if [ "$MODE" == "-" ]; then
+			echo
+			echo -n "Are you sure you want to remove $SCMAPP from scmboot.lst? "; read ANS
+			if [ "$ANS" == "y" ]; then
+				rmBoot "$SCMAPP"
+			fi	
+			clearList
+		fi
+		echo " "
+	fi
+	[ -s "$SCMLIST" ] && [ mode = "b" ] && echo -n "S)earchDisplayed, "
+	echo -n "B)rowse, L)ocal, U)ninstal, -)@Boot or Q)uit: "; read -s -n1 ANS; echo
+	case ${ANS} in
+		B|b) browseRepo ;;
+		A|a) displayInfo ;;
+		D|d) displayDepends ;;
+		L|l) localList ;;
+		I|i) install ;;
+		U|u) uninstall ;;
+		L|l) selectList ;;
+		S|s) searchList ;;
+		+) addBoot ;;
+		-) bootItems ;;
+		Q|q|X|x) quit ;;
+	esac
+done

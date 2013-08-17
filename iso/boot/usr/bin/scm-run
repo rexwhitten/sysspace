@@ -1,0 +1,17 @@
+#!/bin/sh
+# (c) Robert Shingledecker 2012
+
+. /etc/init.d/tc-functions
+
+[ -z $1 ] && exit 1
+TARGET=$1 && EXTN=${1##/*/}
+shift 1
+APPNAME=${EXTN%%.scm}
+TCEDIR=/etc/sysconfig/tcedir
+[ -d "$TCEDIR" ] || exit 1
+[ ${TARGET} == ${EXTN} ] && TARGET=${TCEDIR}/optional/${EXTN}
+[ ${EXTN} == ${APPNAME} ] && TARGET=${TARGET}.scm
+if [ ! -e /apps/${APPNAME} ]; then
+	scm-load -i ${TARGET}
+fi
+launchApp "$APPNAME" "$@"
