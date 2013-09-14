@@ -6,7 +6,7 @@
 ** Use VBoxManage or the VirtualBox Manager GUI to make changes.
 -->
 <VirtualBox xmlns="http://www.innotek.de/VirtualBox-settings" version="1.12-windows">
-  <Machine uuid="{2f451904-ba1d-48ba-b83d-ed4d56f0acf2}" name="sysspace" OSType="Linux26" snapshotFolder="Snapshots" lastStateChange="2013-09-14T19:52:08Z">
+  <Machine uuid="{2f451904-ba1d-48ba-b83d-ed4d56f0acf2}" name="sysspace" OSType="Linux26" snapshotFolder="Snapshots" lastStateChange="2013-09-14T20:30:02Z">
     <MediaRegistry>
       <HardDisks/>
       <DVDImages>
@@ -16,6 +16,9 @@
     </MediaRegistry>
     <ExtraData>
       <ExtraDataItem name="GUI/FirstRun" value="yes"/>
+      <ExtraDataItem name="GUI/LastCloseAction" value="PowerOff"/>
+      <ExtraDataItem name="GUI/LastGuestSizeHint" value="720,400"/>
+      <ExtraDataItem name="GUI/LastNormalWindowPosition" value="511,189,720,442"/>
     </ExtraData>
     <Hardware version="2">
       <CPU count="1" hotplug="false">
@@ -140,13 +143,13 @@
         <CardReader enabled="false"/>
       </EmulatedUSB>
       <Guest memoryBalloonSize="0"/>
-      <GuestProperties/>
+      <GuestProperties>
+        <GuestProperty name="/VirtualBox/HostInfo/GUI/LanguageID" value="en_US" timestamp="1379188410142000000" flags=""/>
+      </GuestProperties>
     </Hardware>
     <StorageControllers>
       <StorageController name="IDE" type="PIIX4" PortCount="2" useHostIOCache="true" Bootable="true">
-        <AttachedDevice passthrough="false" type="DVD" port="1" device="0">
-          <Image uuid="{faa6c8f9-f403-4c0a-8b9b-c615ef5ea991}"/>
-        </AttachedDevice>
+        <AttachedDevice passthrough="false" type="DVD" port="1" device="0"/>
       </StorageController>
       <StorageController name="SATA" type="AHCI" PortCount="1" useHostIOCache="false" Bootable="true" IDE0MasterEmulationPort="0" IDE0SlaveEmulationPort="1" IDE1MasterEmulationPort="2" IDE1SlaveEmulationPort="3">
         <AttachedDevice type="HardDisk" port="0" device="0">

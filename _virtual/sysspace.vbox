@@ -6,7 +6,7 @@
 ** Use VBoxManage or the VirtualBox Manager GUI to make changes.
 -->
 <VirtualBox xmlns="http://www.innotek.de/VirtualBox-settings" version="1.12-windows">
-  <Machine uuid="{2f451904-ba1d-48ba-b83d-ed4d56f0acf2}" name="sysspace" OSType="Linux26" snapshotFolder="Snapshots" lastStateChange="2013-09-14T19:53:30Z">
+  <Machine uuid="{2f451904-ba1d-48ba-b83d-ed4d56f0acf2}" name="sysspace" OSType="Linux26" snapshotFolder="Snapshots" lastStateChange="2013-09-14T20:30:02Z">
     <MediaRegistry>
       <HardDisks/>
       <DVDImages>
@@ -15,7 +15,9 @@
       <FloppyImages/>
     </MediaRegistry>
     <ExtraData>
-      <ExtraDataItem name="GUI/FirstRun" value="yes"/>
+      <ExtraDataItem name="GUI/LastCloseAction" value="PowerOff"/>
+      <ExtraDataItem name="GUI/LastGuestSizeHint" value="720,400"/>
+      <ExtraDataItem name="GUI/LastNormalWindowPosition" value="511,189,720,442"/>
     </ExtraData>
     <Hardware version="2">
       <CPU count="1" hotplug="false">
