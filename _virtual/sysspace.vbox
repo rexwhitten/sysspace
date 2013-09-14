@@ -6,7 +6,7 @@
 ** Use VBoxManage or the VirtualBox Manager GUI to make changes.
 -->
 <VirtualBox xmlns="http://www.innotek.de/VirtualBox-settings" version="1.12-windows">
-  <Machine uuid="{2f451904-ba1d-48ba-b83d-ed4d56f0acf2}" name="sysspace" OSType="Linux26" snapshotFolder="Snapshots" lastStateChange="2013-09-14T20:30:02Z">
+  <Machine uuid="{2f451904-ba1d-48ba-b83d-ed4d56f0acf2}" name="sysspace" OSType="Linux26" snapshotFolder="Snapshots" lastStateChange="2013-09-14T20:46:29Z">
     <MediaRegistry>
       <HardDisks/>
       <DVDImages>
@@ -17,7 +17,7 @@
     <ExtraData>
       <ExtraDataItem name="GUI/LastCloseAction" value="PowerOff"/>
       <ExtraDataItem name="GUI/LastGuestSizeHint" value="720,400"/>
-      <ExtraDataItem name="GUI/LastNormalWindowPosition" value="511,189,720,442"/>
+      <ExtraDataItem name="GUI/LastNormalWindowPosition" value="361,187,720,578"/>
     </ExtraData>
     <Hardware version="2">
       <CPU count="1" hotplug="false">
@@ -143,7 +143,7 @@
       </EmulatedUSB>
       <Guest memoryBalloonSize="0"/>
       <GuestProperties>
-        <GuestProperty name="/VirtualBox/HostInfo/GUI/LanguageID" value="en_US" timestamp="1379188410142000000" flags=""/>
+        <GuestProperty name="/VirtualBox/HostInfo/GUI/LanguageID" value="en_US" timestamp="1379190868867500000" flags=""/>
       </GuestProperties>
     </Hardware>
     <StorageControllers>
